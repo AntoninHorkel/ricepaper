@@ -1,0 +1,27 @@
+.{
+    .name = "ricepaper",
+    .version = "0.1.0",
+    .minimum_zig_version = "0.14.0",
+    .dependencies = .{
+        .vulkan_codegen = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig.git#06dae6c9201863837a92064e2e7814aa71064067",
+            .hash = "1220edeb3fc7dfc40e6fde705a108edce0a3cc76d165a7c9919d1fb037eccec43372",
+        },
+        .vulkan_headers = .{
+            .url = "git+https://github.com/KhronosGroup/Vulkan-Headers.git#29f979ee5aa58b7b005f805ea8df7a855c39ff37",
+            .hash = "1220d8deff13f2e31607eb0771cb316abc7753f79424aef3edb653a101ec942ce981",
+        },
+        .tracy = .{
+            .url = "https://github.com/wolfpld/tracy/archive/v0.11.1.tar.gz",
+            .hash = "122022a478dccaed1309fb5d022f4041eec45d40c93a855ed24fad970774c2426d91",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src/",
+        "LICENSE-APACHE",
+        "LICENSE-MIT",
+        "README.md",
+    },
+}

@@ -3,6 +3,18 @@
     .version = "0.1.0",
     .minimum_zig_version = "0.14.0",
     .dependencies = .{
+        .shimizu = .{
+            .url = "git+https://git.sr.ht/~geemili/shimizu#b12ee4325e41771a7519a0684fe1e089d1e5ffec",
+            .hash = "1220e5806a4d258630e76dd568792a4725a7caac2a7f5b1014e4f3a5241bc28a7aec",
+        },
+        .wayland_protocols = .{
+            .url = "git+https://gitlab.freedesktop.org/wayland/wayland-protocols.git#02c589c2d8cbf35371f877b57f05a96548187239",
+            .hash = "1220767a302e963159fffeeda6d3e9c8f0097a1e3e1569aeb20c2d1d48441f4f9722",
+        },
+        .wlr_protocols = .{
+            .url = "git+https://gitlab.freedesktop.org/wlroots/wlr-protocols.git#2b8d43325b7012cc3f9b55c08d26e50e42beac7d",
+            .hash = "122085f781fc092194e599ecb839c7e60a81b10ad5afc9af18f1ae3137053bdc16b5",
+        },
         .vulkan_codegen = .{
             .url = "git+https://github.com/Snektron/vulkan-zig.git#06dae6c9201863837a92064e2e7814aa71064067",
             .hash = "1220edeb3fc7dfc40e6fde705a108edce0a3cc76d165a7c9919d1fb037eccec43372",
@@ -20,8 +32,5 @@
         "build.zig",
         "build.zig.zon",
         "src/",
-        "LICENSE-APACHE",
-        "LICENSE-MIT",
-        "README.md",
     },
 }

@@ -2,8 +2,9 @@ const std = @import("std");
 
 // TODO: .imports instead of .root_module.addImport(...)
 
+// TODO: Remove once https://github.com/ziglang/zig/issues/14531 is merged.
 const name = "ricepaper";
-const version = std.SemanticVersion.parse("0.1.0") catch {};
+const version = std.SemanticVersion.parse("0.1.0") catch unreachable;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -22,6 +23,9 @@ pub fn build(b: *std.Build) void {
     options.addOption(struct { enable: bool, link: bool }, "tracy", .{ .enable = enable_tracy, .link = link_tracy });
     options.addOption(bool, "validate", enable_validation_layers);
     const options_module = options.createModule();
+
+    // const shimizu = b.dependency("shimizu", .{});
+    // const shimizu_module = shimizu.module("shimizu");
 
     // TODO: Once https://github.com/ziglang/zig/issues/17895 is merged,
     // only https://raw.githubusercontent.com/KhronosGroup/Vulkan-Headers/main/registry/vk.xml needs to be fetched.
@@ -64,13 +68,14 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = name,
-        .root_source_file = b.path("src/graphics_context.zig"),
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
         .use_llvm = enable_llvm,
         .use_lld = enable_lld,
         .strip = strip,
     });
+    // exe.root_module.addImport("shimizu", shimizu_module);
     exe.root_module.addImport("vulkan", vulkan_module);
     exe.root_module.addImport("tracy", tracy_module);
     exe.root_module.addImport("build_options", options_module); // exe.root_module.addAnonymousImport(...);
@@ -83,10 +88,11 @@ pub fn build(b: *std.Build) void {
 
     // This can be simplified with https://github.com/ziglang/zig/pull/20388
     const unit_tests_exe = b.addTest(.{
-        .root_source_file = b.path("src/graphics_context.zig"),
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
+    // unit_tests_exe.root_module.addImport("shimizu", shimizu_module);
     unit_tests_exe.root_module.addImport("vulkan", vulkan_module);
     unit_tests_exe.root_module.addImport("tracy", tracy_module);
     unit_tests_exe.root_module.addImport("build_options", options_module); // unit_tests_exe.root_module.addAnonymousImport(...);
@@ -98,10 +104,11 @@ pub fn build(b: *std.Build) void {
     // This can be simplified with https://github.com/ziglang/zig/pull/20388
     const autodoc_exe = b.addObject(.{
         .name = name,
-        .root_source_file = b.path("src/graphics_context.zig"),
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = .Debug,
     });
+    // autodoc_exe.root_module.addImport("shimizu", shimizu_module);
     autodoc_exe.root_module.addImport("vulkan", vulkan_module);
     autodoc_exe.root_module.addImport("tracy", tracy_module);
     autodoc_exe.root_module.addImport("build_options", options_module); // autodoc_exe.root_module.addAnonymousImport(...);

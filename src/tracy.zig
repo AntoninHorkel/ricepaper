@@ -1,6 +1,6 @@
-const std = @import("std");
-const builtin = @import("builtin");
 const build_options = @import("build_options");
+const builtin = @import("builtin");
+const std = @import("std");
 const c = @cImport(if (build_options.tracy.enable) {
     @cDefine("TRACY_ENABLE", "1");
     @cInclude("TracyC.h");
@@ -14,20 +14,21 @@ comptime {
 }
 
 var bindings: struct {
-    ___tracy_emit_zone_begin: *const @TypeOf(c.___tracy_emit_zone_begin),
-    ___tracy_emit_zone_begin_callstack: *const @TypeOf(c.___tracy_emit_zone_begin_callstack),
-    ___tracy_emit_zone_end: *const @TypeOf(c.___tracy_emit_zone_end),
-    ___tracy_emit_zone_name: *const @TypeOf(c.___tracy_emit_zone_name),
-    ___tracy_emit_zone_color: *const @TypeOf(c.___tracy_emit_zone_color),
-    ___tracy_emit_zone_value: *const @TypeOf(c.___tracy_emit_zone_value),
-    ___tracy_emit_zone_text: *const @TypeOf(c.___tracy_emit_zone_text),
-    ___tracy_emit_message: *const @TypeOf(c.___tracy_emit_message),
-    ___tracy_emit_messageC: *const @TypeOf(c.___tracy_emit_messageC),
-    ___tracy_emit_messageL: *const @TypeOf(c.___tracy_emit_messageL),
-    ___tracy_emit_messageLC: *const @TypeOf(c.___tracy_emit_messageLC),
-} = undefined;
+    ___tracy_emit_zone_begin: *const @TypeOf(c.___tracy_emit_zone_begin) = c.___tracy_emit_zone_begin,
+    ___tracy_emit_zone_begin_callstack: *const @TypeOf(c.___tracy_emit_zone_begin_callstack) = c.___tracy_emit_zone_begin_callstack,
+    ___tracy_emit_zone_end: *const @TypeOf(c.___tracy_emit_zone_end) = c.___tracy_emit_zone_end,
+    ___tracy_emit_zone_name: *const @TypeOf(c.___tracy_emit_zone_name) = c.___tracy_emit_zone_name,
+    ___tracy_emit_zone_color: *const @TypeOf(c.___tracy_emit_zone_color) = c.___tracy_emit_zone_color,
+    ___tracy_emit_zone_value: *const @TypeOf(c.___tracy_emit_zone_value) = c.___tracy_emit_zone_value,
+    ___tracy_emit_zone_text: *const @TypeOf(c.___tracy_emit_zone_text) = c.___tracy_emit_zone_text,
+    ___tracy_emit_message: *const @TypeOf(c.___tracy_emit_message) = c.___tracy_emit_message,
+    ___tracy_emit_messageC: *const @TypeOf(c.___tracy_emit_messageC) = c.___tracy_emit_messageC,
+    ___tracy_emit_messageL: *const @TypeOf(c.___tracy_emit_messageL) = c.___tracy_emit_messageL,
+    ___tracy_emit_messageLC: *const @TypeOf(c.___tracy_emit_messageLC) = c.___tracy_emit_messageLC,
+} = .{};
 
-pub inline fn initGlobal() (std.DynLib.Error || error{ProcNotFound})!void {
+/// Loads Tracy library if build_options.tracy.link is false.
+pub inline fn loadLib() (std.DynLib.Error || error{ProcNotFound})!void {
     if (!build_options.tracy.link) {
         // https://github.com/oven-sh/bun/blob/main/src/tracy.zig#L520-L529
         const possible_tracy_lib_paths: []const []const u8 = &.{
@@ -60,19 +61,7 @@ pub inline fn initGlobal() (std.DynLib.Error || error{ProcNotFound})!void {
             };
             break;
         } else return error.FileNotFound;
-    } else bindings = .{
-        .___tracy_emit_zone_begin = c.___tracy_emit_zone_begin,
-        .___tracy_emit_zone_begin_callstack = c.___tracy_emit_zone_begin_callstack,
-        .___tracy_emit_zone_end = c.___tracy_emit_zone_end,
-        .___tracy_emit_zone_name = c.___tracy_emit_zone_name,
-        .___tracy_emit_zone_color = c.___tracy_emit_zone_color,
-        .___tracy_emit_zone_value = c.___tracy_emit_zone_value,
-        .___tracy_emit_zone_text = c.___tracy_emit_zone_text,
-        .___tracy_emit_message = c.___tracy_emit_message,
-        .___tracy_emit_messageC = c.___tracy_emit_messageC,
-        .___tracy_emit_messageL = c.___tracy_emit_messageL,
-        .___tracy_emit_messageLC = c.___tracy_emit_messageLC,
-    };
+    }
 }
 
 pub const Options = struct {

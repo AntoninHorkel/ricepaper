@@ -2,7 +2,7 @@
 
 // precision highp float;
 
-out vec2 coords;
+layout(location = 0) out vec2 coords;
 
 const vec2 vertices[4] = {
     {-1., -1.},

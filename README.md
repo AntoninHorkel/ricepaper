@@ -5,6 +5,54 @@
 
 TODO
 
+## Usage
+
+TODO
+
+### Configuration
+
+TODO
+
+### IPC
+
+TODO
+
+## Features
+
+- [ ] Config file
+- [ ] SPIR-V fragment shaders
+- [ ] Images
+- [ ] GIFs
+- [ ] Videos
+- [ ] Shooth transition effects
+- [ ] Vulkan Video backend
+- [ ] FFMPEG backend
+
+## Build Dependencies
+
+- Zig 0.14.0 or newer
+- pkg-config
+
+## Runtime Dependencies
+
+- Wayland compositor that implements [wlr-layer-shell](https://wayland.app/protocols/wlr-layer-shell-unstable-v1)
+- Vulkan SDK
+
+## Similar projects
+
+- [glshell](https://github.com/Duckonaut/glshell)
+- [swww - A Solution to your Wayland Wallpaper Woes](https://github.com/LGFae/swww)
+- [mpvpaper](https://github.com/GhostNaN/mpvpaper)
+- [And more...](https://github.com/rcalixte/awesome-wayland#wallpaper)
+
+## Benchmarking
+
+To profile ricepaper using [Tracy profiler](https://github.com/wolfpld/tracy) build it with the `-Dtracy` flag.
+
+## Contributing
+
+TODO
+
 ## Style Guide
 
 Adhere to the [Zig Style Guide](https://ziglang.org/documentation/master/#Style-Guide).
@@ -43,3 +91,21 @@ const Foo = import("foo.zig").Foo;
 // Not that:
 const Foo = import("Foo.zig");
 ```
+
+## License
+
+Ricepaper is licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or [https://www.apache.org/licenses/LICENSE-2.0](https://www.apache.org/licenses/LICENSE-2.0))
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or [https://opensource.org/licenses/MIT](https://opensource.org/licenses/MIT))
+
+at your option.
+
+It uses several third-party projects. Here is a list of them along with their respective licenses:
+
+- [shimizu](https://git.sr.ht/~geemili/shimizu): [MIT license](https://git.sr.ht/~geemili/shimizu/tree/dev/item/LICENSE)
+- [Wayland protocols](https://gitlab.freedesktop.org/wayland/wayland-protocols): [MIT license](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/main/COPYING)
+- [wlr-protocols](https://gitlab.freedesktop.org/wlroots/wlr-protocols): No license
+- [vulkan-zig](https://github.com/Snektron/vulkan-zig): [MIT license](https://github.com/Snektron/vulkan-zig/blob/master/LICENSE)
+- [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers): [Apache-2.0 or MIT license](https://github.com/KhronosGroup/Vulkan-Headers/blob/main/LICENSE.md)
+- [Tracy](https://github.com/wolfpld/tracy): [3-clause BSD license](https://github.com/wolfpld/tracy/blob/master/LICENSE)

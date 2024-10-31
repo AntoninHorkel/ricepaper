@@ -17,8 +17,8 @@ test {
     std.testing.refAllDeclsRecursive(@This());
 }
 
-test renderLoop {
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, renderLoop, .{});
+test magic {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, magic, .{});
 }
 
 const std_options = .{
@@ -32,7 +32,7 @@ const std_options = .{
         ) void {
             std.debug.lockStdErr();
             defer std.debug.unlockStdErr();
-            nosuspend std.io.getStdErr().writer().print(level.asText() ++ if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): " ++ format ++ "\n", args) catch {};
+            nosuspend std.io.getStdErr().writer().print(level.asText() ++ if (scope == .default) ": " else " (" ++ @tagName(scope) ++ "): " ++ format ++ "\n", args) catch {};
         }
     }.closure,
 };
@@ -56,10 +56,12 @@ const BaseDispatch = vk.BaseWrapper(apis);
 const InstanceDispatch = vk.InstanceWrapper(apis);
 const DeviceDispatch = vk.DeviceWrapper(apis);
 
+// TODO: Consider not using proxies at all.
 const Instance = vk.InstanceProxy(apis);
 const Device = vk.DeviceProxy(apis);
 const Queue = vk.QueueProxy(apis);
-const CommandBuffer = vk.CommandBufferProxy(apis);
+// Using command buffer proxy would require allocating additional memory, which is not worth one saved keyword.
+// const CommandBuffer = vk.CommandBufferProxy(apis);
 
 const VulkanLib = struct {
     handle: std.DynLib,
@@ -71,7 +73,7 @@ const VulkanLib = struct {
         // https://github.com/zeux/volk/blob/master/volk.c#L101-L105
         const possible_vulkan_lib_paths: []const []const u8 = &.{ "libvulkan.so.1", "libvulkan.so" };
         for (possible_vulkan_lib_paths) |possible_vulkan_lib_path|
-            return .{ .handle = std.DynLib.open(possible_vulkan_lib_path) catch continue }; // TODO: Retry a few times if temporary error?
+            return .{ .handle = std.DynLib.open(possible_vulkan_lib_path) catch continue };
 
         const possible_vulkan_env_vars: []const []const u8 = &.{ "VULKAN_SDK", "VK_SDK_PATH" };
         for (possible_vulkan_env_vars) |possible_vulkan_env_var| {
@@ -92,7 +94,19 @@ const VulkanLib = struct {
     }
 };
 
-inline fn renderLoop(allocator: std.mem.Allocator) !void {
+// TODO: Rename, maybe split into smaller functions?
+inline fn magic(allocator: std.mem.Allocator) !void {
+    // var conn = try shimizu.openConnection(allocator, .{});
+    // defer conn.close();
+
+    // const display = conn.getDisplayProxy();
+    // const registry = try display.sendRequest(.get_registry, .{});
+    // const callback = try display.sendRequest(.sync, .{});
+    // _ = registry; // autofix
+    // _ = callback; // autofix
+
+    const frames_in_flight = 2;
+
     // Number of instance layers (https://vulkan.gpuinfo.org/listinstancelayers.php?platform=linux) with more than 25% support: ~20.
     // Number of instance extensions (https://vulkan.gpuinfo.org/listinstanceextensions.php?platform=linux) with more than 25% support: ~20.
     // Number of device extensions (https://vulkan.gpuinfo.org/listextensions.php?platform=linux) with more than 25% support: ~128.
@@ -107,10 +121,7 @@ inline fn renderLoop(allocator: std.mem.Allocator) !void {
         @sizeOf(vk.QueueFamilyProperties) * 8,
         @sizeOf(vk.SurfaceFormatKHR) * 4,
         @sizeOf(vk.PresentModeKHR) * 4,
-        @sizeOf(vk.Image) * 4,
-        @sizeOf(vk.ImageView) * 4,
-        @sizeOf(vk.Framebuffer) * 4,
-        @sizeOf(vk.CommandBuffer) * 4,
+        (@sizeOf(vk.Image) + @sizeOf(vk.ImageView) + @sizeOf(vk.Framebuffer) + @sizeOf(vk.CommandBuffer)) * 4 + (@sizeOf(vk.Fence) + @sizeOf(vk.Semaphore) * 2) * frames_in_flight,
     }), allocator);
     const stack_fallback_allocator = stack_fallback.get();
 
@@ -129,7 +140,7 @@ inline fn renderLoop(allocator: std.mem.Allocator) !void {
     const base_dispatch = try BaseDispatch.load(getInstanceProcAddr);
 
     // https://vulkan.gpuinfo.org/listinstancelayers.php?platform=linux
-    const required_instance_layers = if (build_options.validate and false) // TODO: Layers are not guaranteed to be present.
+    const required_instance_layers = if (build_options.validate and false) // FIXME: Layers are not guaranteed to be present.
         [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"}
     else
         [_][*:0]const u8{};
@@ -303,8 +314,8 @@ inline fn renderLoop(allocator: std.mem.Allocator) !void {
     };
 
     const surface = try instance.createWaylandSurfaceKHR(&.{
-        .display = undefined, // TODO
-        .surface = undefined, // TODO
+        .display = undefined, // FIXME
+        .surface = undefined, // FIXME
     }, null);
     defer instance.destroySurfaceKHR(surface, null);
 
@@ -324,6 +335,7 @@ inline fn renderLoop(allocator: std.mem.Allocator) !void {
         } else return error.RequiredDeviceLayerNotPresent;
     }
 
+    // TODO
     // This could be done in the physical device selection loop, so if the selected physical device doesn't support the required extensions,
     // we could fallback to another one, but VK_KHR_swapchain extension has 100% support anyway so it's not really necessary.
     // https://vulkan.gpuinfo.org/listextensions.php?platform=linux
@@ -434,164 +446,6 @@ inline fn renderLoop(allocator: std.mem.Allocator) !void {
     const graphics_queue_handle = device.getDeviceQueue(queue_family_idxs.graphics, 0);
     const graphics_queue = Queue.init(graphics_queue_handle, &device_dispatch);
 
-    const surface_capabilities = try instance.getPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface);
-
-    // https://vulkan.gpuinfo.org/listsurfaceformats.php?platform=linux
-    const surface_format = blk: {
-        const available_surface_formats = try instance.getPhysicalDeviceSurfaceFormatsAllocKHR(physical_device, surface, stack_fallback_allocator);
-        defer stack_fallback_allocator.free(available_surface_formats);
-
-        var best_surface_format: vk.SurfaceFormatKHR = undefined;
-        var best_surface_format_score: usize = 0;
-        for (available_surface_formats) |format| {
-            const score: usize = @as(usize, switch (format.format) { // TODO
-                .b8g8r8a8_unorm => 9,
-                .b8g8r8a8_srgb => 7,
-                .r8g8b8a8_unorm => 5,
-                .r8g8b8a8_srgb => 3,
-                else => 1,
-            }) + @as(usize, switch (format.color_space) {
-                .srgb_nonlinear_khr => 1,
-                else => 0,
-            });
-            if (score > best_surface_format_score) {
-                best_surface_format = format;
-                best_surface_format_score = score;
-            }
-        }
-
-        // There has to be at least 1 surface format according to Vulkan spec, so this shouldn't be necessary.
-        if (best_surface_format_score == 0) return error.NoSuitableSurfaceFormat;
-
-        break :blk best_surface_format;
-    };
-
-    // https://vulkan.gpuinfo.org/listsurfacepresentmodes.php?platform=linux
-    // https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VkPresentModeKHR.html
-    const surface_present_mode = blk: {
-        const available_surface_present_modes = try instance.getPhysicalDeviceSurfacePresentModesAllocKHR(physical_device, surface, stack_fallback_allocator);
-        defer stack_fallback_allocator.free(available_surface_present_modes);
-
-        var best_surface_present_mode: vk.PresentModeKHR = undefined;
-        var best_surface_present_mode_score: usize = 0;
-        for (available_surface_present_modes) |present_mode| {
-            const score: usize = switch (present_mode) {
-                .mailbox_khr => 4,
-                .fifo_khr => 3,
-                .fifo_relaxed_khr => 2,
-                .immediate_khr => 1,
-                else => 0, // TODO: Aren't other present modes suitable?
-            };
-            if (score > best_surface_present_mode_score) {
-                best_surface_present_mode = present_mode;
-                best_surface_present_mode_score = score;
-            }
-        }
-
-        // TODO: Does spec guarantee any present modes? If yes, fix error message.
-        if (best_surface_present_mode_score == 0) return error.NoSuitableSurfacePresentMode;
-
-        break :blk best_surface_present_mode;
-    };
-
-    const swapchain_extent = .{
-        .width = std.math.clamp(1920, surface_capabilities.min_image_extent.width, surface_capabilities.max_image_extent.width), // TODO
-        .height = std.math.clamp(1080, surface_capabilities.min_image_extent.height, surface_capabilities.max_image_extent.height), // TODO
-    };
-
-    const swapchain = try device.createSwapchainKHR(&.{
-        .surface = surface,
-        .min_image_count = std.math.clamp(@as(u32, switch (surface_present_mode) {
-            .mailbox_khr => 4,
-            .fifo_khr => 3,
-            .fifo_relaxed_khr => 3,
-            .immediate_khr => 1,
-            else => 3,
-        }), surface_capabilities.min_image_count, if (surface_capabilities.max_image_count == 0) std.math.maxInt(u32) else surface_capabilities.max_image_count),
-        .image_format = surface_format.format,
-        .image_color_space = surface_format.color_space,
-        .image_extent = swapchain_extent,
-        .image_array_layers = 1,
-        .image_usage = if (surface_capabilities.supported_usage_flags.color_attachment_bit) .{ .color_attachment_bit = true } else return error.RequiredImageUsageFlagNotPresent,
-        .image_sharing_mode = if (queue_family_idxs.graphics == queue_family_idxs.present) .exclusive else .concurrent,
-        .queue_family_index_count = if (queue_family_idxs.graphics == queue_family_idxs.present) 0 else 2,
-        .p_queue_family_indices = if (queue_family_idxs.graphics == queue_family_idxs.present) null else &.{ queue_family_idxs.graphics, queue_family_idxs.present },
-        // https://vulkan.gpuinfo.org/listsurfacetransformmodes.php?platform=linux
-        .pre_transform = surface_capabilities.current_transform,
-        // https://vulkan.gpuinfo.org/listsurfacecompositealphamodes.php?platform=linux
-        .composite_alpha = if (surface_capabilities.supported_composite_alpha.opaque_bit_khr)
-            .{ .opaque_bit_khr = true }
-        else if (surface_capabilities.supported_composite_alpha.inherit_bit_khr)
-            .{ .inherit_bit_khr = true }
-        else
-            return error.NoSuitableSurfaceCompositeAlphaMode,
-        .present_mode = surface_present_mode,
-        .clipped = vk.TRUE,
-    }, null);
-    defer device.destroySwapchainKHR(swapchain, null);
-
-    const swapchain_images = try device.getSwapchainImagesAllocKHR(swapchain, stack_fallback_allocator);
-    defer stack_fallback_allocator.free(swapchain_images);
-
-    const image_count = swapchain_images.len;
-
-    const swapchain_image_views = try stack_fallback_allocator.alloc(vk.ImageView, image_count);
-    defer stack_fallback_allocator.free(swapchain_image_views);
-
-    for (swapchain_image_views, swapchain_images) |*image_view, image|
-        image_view.* = try device.createImageView(&.{
-            .image = image,
-            .view_type = .@"2d",
-            .format = surface_format.format,
-            .components = .{
-                .r = .identity,
-                .g = .identity,
-                .b = .identity,
-                .a = .identity,
-            },
-            .subresource_range = .{
-                .aspect_mask = .{ .color_bit = true },
-                .base_mip_level = 0,
-                .level_count = 1,
-                .base_array_layer = 0,
-                .layer_count = 1,
-            },
-        }, null);
-    defer for (swapchain_image_views) |image_view|
-        device.destroyImageView(image_view, null);
-
-    // TODO: From this point on, the code is a mess.
-    // TODO: Dependency?
-    const render_pass = try device.createRenderPass(&.{
-        .attachment_count = 1,
-        .p_attachments = &.{
-            .{
-                .format = surface_format.format,
-                .samples = .{ .@"1_bit" = true },
-                .load_op = .clear,
-                .store_op = .store,
-                .stencil_load_op = .dont_care,
-                .stencil_store_op = .dont_care,
-                .initial_layout = .undefined,
-                .final_layout = .present_src_khr,
-            },
-        },
-        .subpass_count = 1,
-        .p_subpasses = &.{
-            .{
-                .pipeline_bind_point = .graphics,
-                .color_attachment_count = 1,
-                .p_color_attachments = &.{
-                    .{
-                        .attachment = 0,
-                        .layout = .color_attachment_optimal,
-                    },
-                },
-            },
-        },
-    }, null);
-    defer device.destroyRenderPass(render_pass, null);
-
     const vert_shader_code align(@alignOf(u32)) = @embedFile("shaders/vert.spv").*;
     const frag_shader_code align(@alignOf(u32)) = @embedFile("shaders/frag.spv").*;
 
@@ -609,204 +463,375 @@ inline fn renderLoop(allocator: std.mem.Allocator) !void {
     const pipeline_layout = try device.createPipelineLayout(&.{}, null);
     defer device.destroyPipelineLayout(pipeline_layout, null);
 
-    var pipeline: vk.Pipeline = undefined;
-    _ = try device.createGraphicsPipelines(.null_handle, 1, &.{
-        .{
-            .stage_count = 2,
-            .p_stages = &.{
+    // TODO: Saving pipeline cache data into a file and pre-fetching it here.
+    const pipeline_cache = try device.createPipelineCache(&.{}, null);
+    defer device.destroyPipelineCache(pipeline_cache, null);
+
+    var swapchain: vk.SwapchainKHR = .null_handle;
+    while (true) {
+        const surface_capabilities = try instance.getPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface);
+
+        // https://vulkan.gpuinfo.org/listsurfaceformats.php?platform=linux
+        const surface_format = blk: {
+            const available_surface_formats = try instance.getPhysicalDeviceSurfaceFormatsAllocKHR(physical_device, surface, stack_fallback_allocator);
+            defer stack_fallback_allocator.free(available_surface_formats);
+
+            var best_surface_format: vk.SurfaceFormatKHR = undefined;
+            var best_surface_format_score: usize = 0;
+            for (available_surface_formats) |format| {
+                const score: usize = @as(usize, switch (format.format) {
+                    .b8g8r8a8_unorm => 9,
+                    .b8g8r8a8_srgb => 7,
+                    .r8g8b8a8_unorm => 5,
+                    .r8g8b8a8_srgb => 3,
+                    else => 1,
+                }) + @as(usize, switch (format.color_space) {
+                    .srgb_nonlinear_khr => 1,
+                    else => 0,
+                });
+                if (score > best_surface_format_score) {
+                    best_surface_format = format;
+                    best_surface_format_score = score;
+                }
+            }
+
+            // There has to be at least 1 surface format according to Vulkan spec, so this shouldn't be necessary.
+            if (best_surface_format_score == 0) return error.NoSuitableSurfaceFormat;
+
+            break :blk best_surface_format;
+        };
+
+        // https://vulkan.gpuinfo.org/listsurfacepresentmodes.php?platform=linux
+        // https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VkPresentModeKHR.html
+        const surface_present_mode = blk: {
+            const available_surface_present_modes = try instance.getPhysicalDeviceSurfacePresentModesAllocKHR(physical_device, surface, stack_fallback_allocator);
+            defer stack_fallback_allocator.free(available_surface_present_modes);
+
+            var best_surface_present_mode: vk.PresentModeKHR = undefined;
+            var best_surface_present_mode_score: usize = 0;
+            for (available_surface_present_modes) |present_mode| {
+                const score: usize = switch (present_mode) {
+                    .mailbox_khr => 4,
+                    .fifo_khr => 3,
+                    .fifo_relaxed_khr => 2,
+                    .immediate_khr => 1,
+                    else => 0, // This case should never be hit anyway, since I don't set the device extensions required by other present modes.
+                };
+                if (score > best_surface_present_mode_score) {
+                    best_surface_present_mode = present_mode;
+                    best_surface_present_mode_score = score;
+                }
+            }
+
+            // TODO: Does spec guarantee any present modes? If yes, fix the error message.
+            if (best_surface_present_mode_score == 0) return error.NoSuitableSurfacePresentMode;
+
+            break :blk best_surface_present_mode;
+        };
+
+        const swapchain_extent = .{
+            .width = std.math.clamp(1920, surface_capabilities.min_image_extent.width, surface_capabilities.max_image_extent.width), // FIXME
+            .height = std.math.clamp(1080, surface_capabilities.min_image_extent.height, surface_capabilities.max_image_extent.height), // FIXME
+        };
+
+        swapchain = try device.createSwapchainKHR(&.{
+            .surface = surface,
+            .min_image_count = std.math.clamp(@as(u32, switch (surface_present_mode) {
+                .mailbox_khr => 4,
+                .fifo_khr, .fifo_relaxed_khr => 3,
+                .immediate_khr => 1,
+                else => unreachable,
+            }), surface_capabilities.min_image_count, if (surface_capabilities.max_image_count == 0) std.math.maxInt(u32) else surface_capabilities.max_image_count),
+            .image_format = surface_format.format,
+            .image_color_space = surface_format.color_space,
+            .image_extent = swapchain_extent,
+            .image_array_layers = 1,
+            .image_usage = if (surface_capabilities.supported_usage_flags.color_attachment_bit) .{ .color_attachment_bit = true } else return error.RequiredImageUsageFlagNotPresent,
+            .image_sharing_mode = if (queue_family_idxs.graphics == queue_family_idxs.present) .exclusive else .concurrent,
+            .queue_family_index_count = if (queue_family_idxs.graphics == queue_family_idxs.present) 0 else 2,
+            .p_queue_family_indices = if (queue_family_idxs.graphics == queue_family_idxs.present) null else &.{ queue_family_idxs.graphics, queue_family_idxs.present },
+            // https://vulkan.gpuinfo.org/listsurfacetransformmodes.php?platform=linux
+            .pre_transform = surface_capabilities.current_transform,
+            // https://vulkan.gpuinfo.org/listsurfacecompositealphamodes.php?platform=linux
+            .composite_alpha = if (surface_capabilities.supported_composite_alpha.opaque_bit_khr)
+                .{ .opaque_bit_khr = true }
+            else if (surface_capabilities.supported_composite_alpha.inherit_bit_khr)
+                .{ .inherit_bit_khr = true }
+            else
+                return error.NoSuitableSurfaceCompositeAlphaMode,
+            .present_mode = surface_present_mode,
+            .clipped = vk.TRUE,
+            .old_swapchain = swapchain,
+        }, null);
+        defer device.destroySwapchainKHR(swapchain, null);
+
+        const swapchain_images = try device.getSwapchainImagesAllocKHR(swapchain, stack_fallback_allocator);
+        defer stack_fallback_allocator.free(swapchain_images);
+
+        const image_count = swapchain_images.len;
+
+        const swapchain_image_views = try stack_fallback_allocator.alloc(vk.ImageView, image_count);
+        defer stack_fallback_allocator.free(swapchain_image_views);
+
+        for (swapchain_image_views, swapchain_images) |*image_view, image|
+            image_view.* = try device.createImageView(&.{
+                .image = image,
+                .view_type = .@"2d",
+                .format = surface_format.format,
+                .components = .{
+                    .r = .identity,
+                    .g = .identity,
+                    .b = .identity,
+                    .a = .identity,
+                },
+                .subresource_range = .{
+                    .aspect_mask = .{ .color_bit = true },
+                    .base_mip_level = 0,
+                    .level_count = 1,
+                    .base_array_layer = 0,
+                    .layer_count = 1,
+                },
+            }, null);
+        defer for (swapchain_image_views) |image_view|
+            device.destroyImageView(image_view, null);
+
+        // TODO: From this point on, the code is a mess. Don't forget to add nice comments.
+        // TODO: Dependency?
+        const render_pass = try device.createRenderPass(&.{
+            .attachment_count = 1,
+            .p_attachments = &.{
                 .{
-                    .stage = .{ .vertex_bit = true },
-                    .module = vert_shader_module,
-                    .p_name = "main",
+                    .format = surface_format.format,
+                    .samples = .{ .@"1_bit" = true },
+                    .load_op = .clear,
+                    .store_op = .store,
+                    .stencil_load_op = .dont_care,
+                    .stencil_store_op = .dont_care,
+                    .initial_layout = .undefined,
+                    .final_layout = .present_src_khr,
                 },
+            },
+            .subpass_count = 1,
+            .p_subpasses = &.{
                 .{
-                    .stage = .{ .fragment_bit = true },
-                    .module = frag_shader_module,
-                    .p_name = "main",
-                },
-            },
-            // .p_vertex_input_state = null,
-            .p_input_assembly_state = &.{
-                .topology = .triangle_list,
-                .primitive_restart_enable = vk.FALSE,
-            },
-            // .p_tessellation_state = null,
-            .p_viewport_state = &.{
-                .viewport_count = 1,
-                .p_viewports = &.{
-                    .{
-                        .x = 0.0,
-                        .y = 0.0,
-                        .width = @floatFromInt(swapchain_extent.width),
-                        .height = @floatFromInt(swapchain_extent.height),
-                        .min_depth = 0.0,
-                        .max_depth = 1.0,
-                    },
-                },
-                .scissor_count = 1,
-                .p_scissors = &.{
-                    .{
-                        .offset = .{ .x = 0, .y = 0 },
-                        .extent = swapchain_extent,
-                    },
-                },
-            },
-            .p_rasterization_state = &.{
-                .depth_clamp_enable = vk.FALSE,
-                .rasterizer_discard_enable = vk.FALSE,
-                .polygon_mode = .fill,
-                .cull_mode = .{ .back_bit = true },
-                .front_face = .clockwise,
-                .depth_bias_enable = vk.FALSE,
-                .depth_bias_constant_factor = 0, // undefined?
-                .depth_bias_clamp = 0, // undefined?
-                .depth_bias_slope_factor = 0, // undefined?
-                .line_width = 1.0,
-            },
-            // .p_multisample_state = null, // TODO: Does this disable MSAA?
-            // .p_depth_stencil_state = null,
-            .p_color_blend_state = &.{
-                .logic_op_enable = vk.FALSE, // TODO: TRUE???
-                .logic_op = .copy, // undefined?
-                .attachment_count = 1,
-                .p_attachments = &.{
-                    .{
-                        .blend_enable = vk.FALSE,
-                        .src_color_blend_factor = .one,
-                        .dst_color_blend_factor = .zero,
-                        .color_blend_op = .add,
-                        .src_alpha_blend_factor = .one,
-                        .dst_alpha_blend_factor = .zero,
-                        .alpha_blend_op = .add,
-                        .color_write_mask = .{
-                            .r_bit = true,
-                            .g_bit = true,
-                            .b_bit = true,
-                            .a_bit = true,
+                    .pipeline_bind_point = .graphics,
+                    .color_attachment_count = 1,
+                    .p_color_attachments = &.{
+                        .{
+                            .attachment = 0,
+                            .layout = .color_attachment_optimal,
                         },
                     },
                 },
-                .blend_constants = .{ 0.0, 0.0, 0.0, 0.0 }, // undefined?
             },
-            .p_dynamic_state = &.{
-                .dynamic_state_count = 1,
-                .p_dynamic_states = &.{ .viewport, .scissor },
-            },
-            .layout = pipeline_layout,
-            .render_pass = render_pass,
-            .subpass = 0,
-            .base_pipeline_index = -1, // undefined?
-        },
-    }, null, @ptrCast(&pipeline));
-    defer device.destroyPipeline(pipeline, null);
-
-    const framebuffers = try stack_fallback_allocator.alloc(vk.Framebuffer, image_count);
-    defer stack_fallback_allocator.free(framebuffers);
-
-    for (framebuffers, swapchain_image_views) |*framebuffer, image_view|
-        framebuffer.* = try device.createFramebuffer(&.{
-            .render_pass = render_pass,
-            .attachment_count = 1,
-            .p_attachments = &.{image_view},
-            .width = swapchain_extent.width,
-            .height = swapchain_extent.height,
-            .layers = 1,
         }, null);
-    defer for (framebuffers) |framebuffer|
-        device.destroyFramebuffer(framebuffer, null);
+        defer device.destroyRenderPass(render_pass, null);
 
-    const command_pool = try device.createCommandPool(&.{
-        .flags = .{ .reset_command_buffer_bit = true }, // TODO
-        .queue_family_index = queue_family_idxs.graphics,
-    }, null);
-    defer device.destroyCommandPool(command_pool, null);
-
-    const cmdbuffers = try stack_fallback_allocator.alloc(vk.CommandBuffer, image_count);
-    defer stack_fallback_allocator.free(cmdbuffers);
-
-    try device.allocateCommandBuffers(&.{
-        .command_pool = command_pool,
-        .level = .primary, // TODO
-        .command_buffer_count = @intCast(image_count),
-    }, cmdbuffers.ptr);
-    defer device.freeCommandBuffers(command_pool, @intCast(image_count), cmdbuffers.ptr);
-
-    for (cmdbuffers, framebuffers) |cmdbuffer, framebuffer| {
-        try device.beginCommandBuffer(cmdbuffer, &.{});
-        device.cmdBeginRenderPass(cmdbuffer, &.{
-            .render_pass = render_pass,
-            .framebuffer = framebuffer,
-            .render_area = .{
-                .offset = .{ .x = 0, .y = 0 },
-                .extent = swapchain_extent,
-            },
-            .clear_value_count = 1,
-            .p_clear_values = &.{.{ .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 1.0 } } }},
-        }, .@"inline");
-        device.cmdBindPipeline(cmdbuffer, .graphics, pipeline);
-        device.cmdEndRenderPass(cmdbuffer);
-        device.cmdDraw(cmdbuffer, 3, 1, 0, 0);
-        try device.endCommandBuffer(cmdbuffer);
-    }
-
-    const image_available_semaphore = try device.createSemaphore(&.{}, null);
-    defer device.destroySemaphore(image_available_semaphore, null);
-    const render_finished_semaphore = try device.createSemaphore(&.{}, null);
-    defer device.destroySemaphore(render_finished_semaphore, null);
-
-    const in_flight_fence = try device.createFence(&.{ .flags = .{ .signaled_bit = true } }, null);
-    defer device.destroyFence(in_flight_fence, null);
-
-    while (true) {
-        _ = try device.waitForFences(1, &.{in_flight_fence}, vk.TRUE, std.math.maxInt(u64));
-        try device.resetFences(1, &.{in_flight_fence});
-
-        const acquire_image_result = device.acquireNextImageKHR(swapchain, std.math.maxInt(u64), image_available_semaphore, in_flight_fence);
-        if (if (acquire_image_result) |result| switch (result.result) {
-            .success => false,
-            .timeout => return error.TODO, // TODO
-            .not_ready => return error.TODO, // TODO
-            .suboptimal_khr => true,
-            else => unreachable,
-        } else |err| switch (err) {
-            error.OutOfDateKHR => true,
-            else => return err,
-        }) {
-            // TODO: Rebuild swapchain and continue loop.
-        }
-        const image_index = (acquire_image_result catch unreachable).image_index;
-
-        try graphics_queue.submit(1, &.{
+        var pipeline: vk.Pipeline = undefined;
+        _ = try device.createGraphicsPipelines(pipeline_cache, 1, &.{
             .{
-                .wait_semaphore_count = 1,
-                .p_wait_semaphores = &.{image_available_semaphore},
-                .p_wait_dst_stage_mask = &.{.{ .color_attachment_output_bit = true }}, // TODO: What does this mean?
-                .command_buffer_count = 1,
-                .p_command_buffers = &.{cmdbuffers[image_index]},
-                .signal_semaphore_count = 1,
-                .p_signal_semaphores = &.{render_finished_semaphore},
+                .stage_count = 2,
+                .p_stages = &.{
+                    .{
+                        .stage = .{ .vertex_bit = true },
+                        .module = vert_shader_module,
+                        .p_name = "main",
+                    },
+                    .{
+                        .stage = .{ .fragment_bit = true },
+                        .module = frag_shader_module,
+                        .p_name = "main",
+                    },
+                },
+                // .p_vertex_input_state = null,
+                .p_input_assembly_state = &.{
+                    .topology = .triangle_list,
+                    .primitive_restart_enable = vk.FALSE,
+                },
+                // .p_tessellation_state = null,
+                .p_viewport_state = &.{
+                    .viewport_count = 1,
+                    .p_viewports = &.{
+                        .{
+                            .x = 0.0,
+                            .y = 0.0,
+                            .width = @floatFromInt(swapchain_extent.width),
+                            .height = @floatFromInt(swapchain_extent.height),
+                            .min_depth = 0.0,
+                            .max_depth = 1.0,
+                        },
+                    },
+                    .scissor_count = 1,
+                    .p_scissors = &.{
+                        .{
+                            .offset = .{ .x = 0, .y = 0 },
+                            .extent = swapchain_extent,
+                        },
+                    },
+                },
+                .p_rasterization_state = &.{
+                    .depth_clamp_enable = vk.FALSE,
+                    .rasterizer_discard_enable = vk.FALSE,
+                    .polygon_mode = .fill,
+                    .cull_mode = .{ .back_bit = true },
+                    .front_face = .clockwise,
+                    .depth_bias_enable = vk.FALSE,
+                    .depth_bias_constant_factor = 0, // undefined?
+                    .depth_bias_clamp = 0, // undefined?
+                    .depth_bias_slope_factor = 0, // undefined?
+                    .line_width = 1.0,
+                },
+                // .p_multisample_state = null, // TODO: Does this disable MSAA?
+                // .p_depth_stencil_state = null,
+                .p_color_blend_state = &.{
+                    .logic_op_enable = vk.TRUE, // TODO: TRUE???
+                    .logic_op = .copy,
+                    .attachment_count = 1, // 0?
+                    .p_attachments = &.{ // undefined?
+                        .{
+                            .blend_enable = vk.FALSE,
+                            .src_color_blend_factor = .one,
+                            .dst_color_blend_factor = .zero,
+                            .color_blend_op = .add,
+                            .src_alpha_blend_factor = .one,
+                            .dst_alpha_blend_factor = .zero,
+                            .alpha_blend_op = .add,
+                            .color_write_mask = .{
+                                .r_bit = true,
+                                .g_bit = true,
+                                .b_bit = true,
+                                .a_bit = true,
+                            },
+                        },
+                    },
+                    .blend_constants = .{ 0.0, 0.0, 0.0, 0.0 }, // undefined?
+                },
+                .p_dynamic_state = &.{
+                    .dynamic_state_count = 1,
+                    .p_dynamic_states = &.{ .viewport, .scissor },
+                },
+                .layout = pipeline_layout,
+                .render_pass = render_pass,
+                .subpass = 0,
+                .base_pipeline_index = -1, // undefined?
             },
-        }, in_flight_fence);
+        }, null, @ptrCast(&pipeline));
+        defer device.destroyPipeline(pipeline, null);
 
-        if (if (present_queue.presentKHR(&.{
-            .wait_semaphore_count = 1,
-            .p_wait_semaphores = &.{render_finished_semaphore},
-            .swapchain_count = 1,
-            .p_swapchains = &.{swapchain},
-            .p_image_indices = &.{image_index},
-        })) |result| switch (result) {
-            .success => false,
-            .suboptimal_khr => true,
-            else => unreachable,
-        } else |err| switch (err) {
-            error.OutOfDateKHR => true,
-            else => return err,
-        }) {
-            // TODO: Rebuild swapchain and continue loop.
+        const framebuffers = try stack_fallback_allocator.alloc(vk.Framebuffer, image_count);
+        defer stack_fallback_allocator.free(framebuffers);
+
+        for (framebuffers, swapchain_image_views) |*framebuffer, image_view|
+            framebuffer.* = try device.createFramebuffer(&.{
+                .render_pass = render_pass,
+                .attachment_count = 1,
+                .p_attachments = &.{image_view},
+                .width = swapchain_extent.width,
+                .height = swapchain_extent.height,
+                .layers = 1,
+            }, null);
+        defer for (framebuffers) |framebuffer|
+            device.destroyFramebuffer(framebuffer, null);
+
+        const command_pool = try device.createCommandPool(&.{
+            .flags = .{ .reset_command_buffer_bit = true }, // TODO
+            .queue_family_index = queue_family_idxs.graphics,
+        }, null);
+        defer device.destroyCommandPool(command_pool, null);
+
+        const cmdbuffers = try stack_fallback_allocator.alloc(vk.CommandBuffer, image_count);
+        defer stack_fallback_allocator.free(cmdbuffers);
+
+        try device.allocateCommandBuffers(&.{
+            .command_pool = command_pool,
+            .level = .primary, // TODO
+            .command_buffer_count = @intCast(image_count),
+        }, cmdbuffers.ptr);
+        defer device.freeCommandBuffers(command_pool, @intCast(image_count), cmdbuffers.ptr);
+
+        for (cmdbuffers, framebuffers) |cmdbuffer, framebuffer| {
+            try device.beginCommandBuffer(cmdbuffer, &.{});
+            device.cmdBeginRenderPass(cmdbuffer, &.{
+                .render_pass = render_pass,
+                .framebuffer = framebuffer,
+                .render_area = .{
+                    .offset = .{ .x = 0, .y = 0 },
+                    .extent = swapchain_extent,
+                },
+                .clear_value_count = 1,
+                .p_clear_values = &.{.{ .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 1.0 } } }},
+            }, .@"inline");
+            device.cmdBindPipeline(cmdbuffer, .graphics, pipeline);
+            device.cmdEndRenderPass(cmdbuffer);
+            device.cmdDraw(cmdbuffer, 3, 1, 0, 0); // This of course need to be kept in sync with the number of vertecies in the vertex shader.
+            try device.endCommandBuffer(cmdbuffer);
         }
-    }
 
-    try device.deviceWaitIdle();
+        const in_flight_fences = try stack_fallback_allocator.alloc(vk.Fence, frames_in_flight);
+        defer stack_fallback_allocator.free(in_flight_fences);
+        for (in_flight_fences) |*in_flight_fence| in_flight_fence.* = try device.createFence(&.{ .flags = .{ .signaled_bit = true } }, null);
+        defer for (in_flight_fences) |in_flight_fence| device.destroyFence(in_flight_fence, null);
+
+        const image_available_semaphores = try stack_fallback_allocator.alloc(vk.Semaphore, frames_in_flight);
+        defer stack_fallback_allocator.free(image_available_semaphores);
+        for (image_available_semaphores) |*image_available_semaphore| image_available_semaphore.* = try device.createSemaphore(&.{}, null);
+        defer for (image_available_semaphores) |image_available_semaphore| device.destroySemaphore(image_available_semaphore, null);
+
+        const render_finished_semaphores = try stack_fallback_allocator.alloc(vk.Semaphore, frames_in_flight);
+        defer stack_fallback_allocator.free(render_finished_semaphores);
+        for (render_finished_semaphores) |*render_finished_semaphore| render_finished_semaphore.* = try device.createSemaphore(&.{}, null);
+        defer for (render_finished_semaphores) |render_finished_semaphore| device.destroySemaphore(render_finished_semaphore, null);
+
+        // TODO: Break condition. conn.recv();
+        while (true) {
+            for (in_flight_fences, image_available_semaphores, render_finished_semaphores) |in_flight_fence, image_available_semaphore, render_finished_semaphore| {
+                _ = try device.waitForFences(1, &.{in_flight_fence}, vk.TRUE, std.math.maxInt(u64));
+                try device.resetFences(1, &.{in_flight_fence});
+
+                const image_index = if (device.acquireNextImageKHR(swapchain, std.math.maxInt(u64), image_available_semaphore, .null_handle)) |result| switch (result.result) {
+                    .success => result.image_index,
+                    .timeout, .not_ready => continue, // The time-out is about 585 years long, I don't think this case will ever be hit.
+                    .suboptimal_khr => break,
+                    else => unreachable,
+                } else |err| switch (err) {
+                    error.OutOfDateKHR => break,
+                    else => return err,
+                };
+
+                try graphics_queue.submit(1, &.{
+                    .{
+                        .wait_semaphore_count = 1,
+                        .p_wait_semaphores = &.{image_available_semaphore},
+                        .p_wait_dst_stage_mask = &.{.{ .color_attachment_output_bit = true }}, // TODO: What does this mean?
+                        .command_buffer_count = 1,
+                        .p_command_buffers = &.{cmdbuffers[image_index]},
+                        .signal_semaphore_count = 1,
+                        .p_signal_semaphores = &.{render_finished_semaphore},
+                    },
+                }, in_flight_fence);
+
+                if (present_queue.presentKHR(&.{
+                    .wait_semaphore_count = 1,
+                    .p_wait_semaphores = &.{render_finished_semaphore},
+                    .swapchain_count = 1,
+                    .p_swapchains = &.{swapchain},
+                    .p_image_indices = &.{image_index},
+                })) |result| switch (result) {
+                    .success => {},
+                    .suboptimal_khr => break,
+                    else => unreachable,
+                } else |err| switch (err) {
+                    error.OutOfDateKHR => break,
+                    else => return err,
+                }
+            }
+        } else {
+            try device.deviceWaitIdle();
+            return;
+        }
+
+        try device.deviceWaitIdle();
+    }
 }
 
 pub fn main() u8 {
@@ -821,18 +846,7 @@ pub fn main() u8 {
             defer _ = gpa.deinit();
             const allocator = gpa.allocator();
 
-            // var conn = try shimizu.openConnection(allocator, .{});
-            // defer conn.close();
-
-            // const display = conn.getDisplayProxy();
-            // const registry = try display.sendRequest(.get_registry, .{});
-            // const callback = try display.sendRequest(.sync, .{});
-            // _ = registry; // autofix
-            // _ = callback; // autofix
-
-            try renderLoop(allocator);
-
-            // while (true) conn.recv();
+            try magic(allocator);
         }
     }.closure() catch |err| {
         log.err("{s}", .{

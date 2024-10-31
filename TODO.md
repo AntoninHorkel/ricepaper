@@ -1,13 +1,21 @@
+# General
+
+- [ ] Test on actuall Linux OS
+- [ ] Profile with nvidia nsight and try to improve performance
+- [ ] Fix pending TODOs or post-pone them
+- [ ] Clean-up
+- [ ] Review the code and ideally get an external party to do so aswell
+
 # src/main.zig
 
 - [ ] Swapchain recreation
 - [ ] Wayland (fix `shimizu`)
-- [ ] Test on actuall Linux OS
-- [ ] Fix pending TODOs or post-pone them
-- [ ] Clean-up
-- [ ] Review the code and ideally get an external party to do so aswell
 - [ ] Image decoding and rendering (decide on a format or link FFMPEG)
 - [ ] Video decoding and rendering
+
+# src/tracy.zig
+
+- [ ] Clean-up
 
 # README.md
 

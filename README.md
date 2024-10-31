@@ -3,6 +3,11 @@
 ![License - Apache-2.0 OR MIT](https://img.shields.io/badge/License-Apache--2.0_OR_MIT-blue)
 ![Made with LOVE](https://img.shields.io/badge/Made_with-LOVE_%3C3-hotpink)
 
+> The code desperately needs a code review from a experienced third party.
+> If you're interested in doing that, please feel free to post an issue for any dodgy practises in my code.
+>
+> If you notice any easily fixable bugs, typos, weird formatting, bad variable names or error messages, create a pull request.
+
 TODO
 
 ## Usage
